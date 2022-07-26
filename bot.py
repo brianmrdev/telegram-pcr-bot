@@ -4,11 +4,10 @@ from telegram.ext import Updater, CommandHandler, ConversationHandler, CallbackQ
 from telegram import ChatAction, InlineKeyboardMarkup, InlineKeyboardButton
 from bs4 import BeautifulSoup
 import requests
-import mysql.connector
+import json
 import re
-import os
 
-from config import TOKEN, hostname, username, password, database, port
+from config import TOKEN, URL
 
 #Configurar Logging
 logging.basicConfig(
@@ -33,7 +32,7 @@ def start(update, context):
 
 def acercadelautor(update, context):
     logger.info(f'El usuario {update.effective_user["username"]}, ha solicitado informacion del autor')
-    update.message.reply_text(text='https://www.linkedin.com/in/brianmr88/')
+    update.message.reply_text(text='https://www.linkedin.com/in/brianmrdev/')
 
 def parte_covid(update, context):
     logger.info(f'El usuario {update.effective_user["username"]}, ha solicitado parte diario')
@@ -64,32 +63,34 @@ def pcr_callback_query_handler(update, context):
        return INPUT_TEXT
 
 def BuscarPrueba(text) :
-    myConnection = mysql.connector.connect(host=hostname, user=username, passwd=password, db=database, port=port)
-    cur = myConnection.cursor()
-    cur.execute("""select paciente_muestra.id, paciente_muestra.fecha_resultado, paciente_muestra.procesado, paciente_persona.ci, paciente_persona.nombre, paciente_persona.apellidos, paciente_muestra.pcr, paciente_muestra.numero, paciente_muestra.placa
-from paciente_muestra paciente_muestra
-inner join paciente_persona paciente_persona on paciente_persona.id = paciente_muestra.paciente_id
-where ci = '%s'
-order by id desc
-limit 1"""%text)
+    params = dict(buscar=text)
+    res = requests.get(URL, params=params)
     msg = ''
-    for id, fecha_resultado, procesado, ci, nombre, apellidos, pcr, numero, placa in cur.fetchall() :
-        if pcr == None:
-            pcr = 'Resultado pendiente'
-        if fecha_resultado == None:
-            fecha_resultado = '---'
-        if numero == None:
-            numero = '---'
-        if placa == None:
-            placa = '---'
-        if procesado == 'NO' and pcr == 'Positivo' or procesado == 'NO' and pcr == 'Negativo':
-            confirmacion = '(Pendiente por rectificar)'
-        else:
-            confirmacion = ' '
-        msg += '👤 Nombre: '+str(nombre)+ ' '+str(apellidos)+"\n"'🗓 Fecha de resultado: '+str(fecha_resultado)+"\n"'🔬 Resultado: '+str(pcr)+' '+str(confirmacion)+"\n"'#⃣ Numero: '+str(numero)+"\n"'☑ Placa: '+str(placa)+"\n"
-
-    myConnection.close()
-    return msg
+    
+    if res:    
+        data = json.loads(res.text)
+        atributo = data['resultado']
+        for element in atributo:
+            if len(element) == 0:
+                msg += 'No se encontro ningun resultado'
+                return msg
+            else:    
+                if element['fecha_resultado'] == None:
+                    element['fecha_resultado'] = '---'
+                if element['numero'] == None:
+                    element['numero'] = '---'
+                if element['placa'] == None:
+                    element['placa'] = '---'
+                if element['procesado'] == 'NO' and element['pcr'] == 'Positivo' or element['procesado'] == 'NO' and element['pcr'] == 'Negativo':
+                    confirmacion = '(Pendiente por rectificar)'
+                else:
+                    confirmacion = ' '
+                msg += '👤 Nombre: '+element['nombre']+ ' '+element['apellidos']+"\n"'🗓 Fecha de resultado: '+element['fecha_resultado']+"\n"'🔬 Resultado: '+element['pcr']+' '+str(confirmacion)+"\n"'#⃣ Numero: '+element['numero']+"\n"'☑ Placa: '+element['placa']+"\n"
+                return msg
+    
+    else:
+        msg += 'El servidor no esta disponible en estos momentos, consulte mas tarde'
+        return msg
 
 def send_result(pcr_result, chat):
     chat.send_action(
